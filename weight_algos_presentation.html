@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+  <head>
+    <title>Body Weight Measurements in the VA CDW</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Rich Evans (Richard.Evans8@va.gov)" />
+    <script src="libs/header-attrs/header-attrs.js"></script>
+    <link href="libs/remark-css/default.css" rel="stylesheet" />
+    <link href="libs/remark-css/default-fonts.css" rel="stylesheet" />
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle, inverse, title-slide
+
+# Body Weight Measurements in the VA CDW
+## Weight Collection and Cleaning
+### Rich Evans (<a href="mailto:Richard.Evans8@va.gov" class="email">Richard.Evans8@va.gov</a>)
+### US Dept. of Veterans Affairs Center for Clinical Management Research
+### 2021-08-20 (updated: 2021-08-30)
+
+---
+
+
+
+
+# The Plan
+
+* Intro
+    1. Bayesian vs. Fisherian/Frequentist Methodology
+    2. Some Math
+* Estimation
+    1. Monte Carlo Markov Chains
+        + Hamiltonian Monte Carlo
+* Prior Distributions
+* Stan
+    1. What is it?
+    2. What can it do?
+    3. Syntax &amp; Components
+    4. Interface w/ R
+    5. Semi-automatic Stan with `rstanarm` and `brms`
+* Examples w/ VA data
+    1. Carpal Tunnel Release cohort (Dr. Sears CDA)
+    2. Atypical distributions (LEAP Cohorts)
+    3. Survival/Accelerated Failure Time Models w/ Clusters (Sears HRR Analyses)
+* *Neat* Things
+    1. Missing Data
+    2. Measurement Error Models
+
+---
+class: middle
+
+&lt;font color="red"&gt;Preface&lt;/font&gt;: Almost everything I say here can be followed up with "but it's more complicated than that"
+
+---
+class: inverse, center, middle
+
+# Introduction
+
+---
+class: center, middle
+
+# Bayes Rule
+
+$$
+p(\Theta | X) = \frac{p(X|\Theta)p(\Theta)}{p(X)}
+$$
+Where `\(\Theta = \{ \theta_1, ...,\theta_k \}\)` represents the set of parameters and `\(X\)` the data.
+
+---
+class: center, middle
+
+# Bayesian vs. Frequentist Methodology
+
+---
+class: middle
+
+**Frequentist**:
+
+In a frequentist model, *probability* is the limit of the relative frequency of an event after many trials.
+
+$$
+p = \lim_{n \rightarrow \infty} \text{RF}
+$$
+
+This method calculates the *probability* that the experiment would have the same outcomes if you were to replicate the same conditions again. Thus, data are a repeatable random sample - this frequency exists but the underlying parameters are fixed.
+
+--
+
+**Bayesian**
+
+Bayesians define a *probability* similar to how the "layman" might - namely an indication of the plausibility of a proposition or a situation.
+
+Unknown quantities (parameters) are treated probabilistically and the state of the world can always be updated. Data are observed from the realized sample, it is the data which are fixed.
+
+---
+class: middle, center
+
+# Bayes Rule Again  
+
+$$
+p(\Theta | X) = \frac{p(X|\Theta)p(\Theta)}{p(X)}
+$$
+---
+class: middle, center
+
+$$
+p(\Theta | X) = \frac{\color{red}{p(X|\Theta)}p(\Theta)}{p(X)}
+$$
+
+Frequentist methods focus on estimating the likelihood: `\(Lik(\Theta) = \color{red}{p(X | \Theta)}\)`
+
+---
+class: middle
+ 
+&lt;br&gt;
+&lt;br&gt;
+ 
+$$
+\color{blue}{p(\Theta | X)} = \frac{p(X|\Theta)p(\Theta)}{p(X)}
+$$
+
+Bayesian methods focus on estimating the whole thing, `\(\color{blue}{p(\Theta | X)}\)`, also known as the *Posterior*
+
+---
+
+# Bayes Theorem Components
+
+$$
+\color{blue}{p(\Theta | X)} = \frac{\color{red}{p(X|\Theta)} \color{green}{p(\Theta)}}{p(X)}
+$$
+--
+
+`\(\color{red}{p(X | \Theta)}\)` = Likelihood  
+`\(\color{green}{p(\Theta)}\)` = Prior  
+`\(p(X)\)` = Evidence  
+`\(\color{blue}{p(\Theta | X)}\)` = Posterior
+
+---
+
+# An Example
+
+OLS Regression
+
+$$
+Y_i = \beta_0 + \beta_1X_i + \epsilon_i
+$$
+
+Where `\(\epsilon_i \sim N(0, \sigma^2)\)`
+
+--
+
+## Bayesian Formulation
+
+$$
+p(\Theta | X) = p(\{ \sigma^2, \beta_0, \beta_1 \} | \pmb{y})
+$$
+---
+
+## Example (cont.)
+
+The likelihood takes the form,
+
+$$
+p(\pmb{y} | \beta_0, \beta_1, \sigma^2) = (\sigma^2)^{-n/2} \exp \left(\ -\frac{1}{2\sigma^2} (\pmb{y} - \pmb{X}\pmb{\beta})^T(\pmb{y} - \pmb{X}\pmb{\beta}) \right\)
+$$
+
+--
+
+The prior, if we want a tractable solution&lt;sup&gt;1&lt;/sup&gt;, is the product of an [inverse-gamma distribution](https://en.wikipedia.org/wiki/Inverse-gamma_distribution)&lt;sup&gt;2&lt;/sup&gt; and a conditional normal distribution&lt;sup&gt;3&lt;/sup&gt;
+
+$$
+p(\beta_0, \beta_1, \sigma^2) = p(\sigma^2)p(\beta_0, \beta_1 | \sigma^2)
+$$
+`\(p(\sigma^2) \sim \Gamma^{-1}(\nu, s^2)\)`
+
+`\(p(\pmb{\beta} | \sigma^2) \sim N(\pmb{\mu}, \sigma^2 \Sigma)\)`
+
+Consolidating `\(\{\beta_0, \beta_1 \}\)` into matrix notation `\(\pmb{\beta}\)`
+
+.footnote[
+[1] When you set your own prior, there may be no analytical solution  
+[2] Technically called a Conjugate Prior  
+[3] Thanks to Bayes Rule again
+]
+
+---
+
+## Example (cont.)
+
+That whole form can be really complicated:
+
+$$
+p(\Theta | \pmb{y}) \propto (\sigma^2)^{-n/2} \exp \left(\ -\frac{1}{2\sigma^2} (\pmb{y} - \pmb{X}\pmb{\beta})^T(\pmb{y} - \pmb{X}\pmb{\beta}) \right\)
+$$
+$$
+\cdot (\sigma^2)^{-k/2} \exp \left(\ -\frac{1}{2\sigma^2} (\pmb{\beta} - \pmb{\mu_0})^T \pmb{\Sigma} (\pmb{\beta} - \pmb{\mu_0}) \right\)
+$$
+$$
+\cdot (\sigma^2)^{-(\nu + 1)} \exp \left( \frac{s^2}{\sigma^2} \right)
+$$
+
+--
+
+And that makes estimation with arbitrary priors quite difficult. But that's not the even the worst part ...
+
+---
+
+## Example (cont.)
+
+For complex models with many parameters, the posterior distribution takes the form
+
+$$
+p(\theta | \pmb{y}) = \frac{\text{Lik}(\theta|\pmb{y})p(\theta)}{\int_\Theta \text{Lik}(\theta | \pmb{y})p(\theta)d\theta}
+$$
+
+and it is this denominator integral that makes things really difficult.
+
+--
+
+### However, 
+
+`\(\int_\Theta \text{Lik}(\theta | \pmb{y})p(\theta)d\theta\)`, the marginal distribution, actually does not depend on `\(\Theta\)`, (it's being integrated out) so we can write our posterior like this,
+
+$$
+p(\Theta | \pmb{y}) \propto \text{Lik}(\Theta | \pmb{y})p(\Theta)
+$$
+and this quantity can be used to compute point and interval estimates. 
+
+---
+class: middle
+
+But, one of the biggest advantages of Bayesian methods involves the ability to derive the posterior completely, which involves the estimation of difficult quantities with no *closed form* solutions.
+
+And thus, we turn to numerical methods ...
+
+---
+class: center, middle, inverse
+
+# Estimation: Markov Chain Monte Carlo
+
+---
+
+## Monte Carlo Methods
+
+Any computational method designed to estimate some deterministic quantity using repeated random sampling. The method relies almost entirely on the [law of large numbers](https://en.wikipedia.org/wiki/Law_of_large_numbers)
+
+&gt; As the number of i.i.d., randomly generated variables increases, their sample mean approaches the theoretical mean.
+
+--
+
+## Markov Chains&lt;sup&gt;1&lt;/sup&gt;
+
+In math speak: A collection of random variables `\({X_t}\)` having the property that, given the present, the future is conditionally independent of the past.
+
+Put simply: Mathematical "models" that hop from state to state, where the next state of the model, only depends on the current state.
+
+.footnote[[1] My favorite explanation of Markov Chains https://setosa.io/ev/markov-chains/]
+
+---
+
+# Markov Chain Monte Carlo
+
+&lt;br&gt;
+&lt;br&gt;
+&lt;br&gt;
+
+Algorithms designed to sample from a probability distribution.
+
+&lt;br&gt;
+
+Unlike Monte Carlo sampling methods that are able to draw independent samples from a distribution, MCMC methods draw samples where the next sample is dependent on the existing sample. This is important because we are often trying to derive multi-dimensional posteriors.
+
+---
+class: middle
+
+Focusing on the right side figure,
+
+![MCMC Example](figures/single chain.jpg)
+
+this "fuzzy caterpillar" is the Markov Chain (3 different chains shown here) as it searched the parameter space for the posterior distribution of the intercept term in a regression model.
+
+&lt;br&gt;
+
+The result is the full distribution of the plausible intercept terms in *n* simulated draws from the regression model, the figure on the left.
+
+---
+class: middle, center
+
+# Hamiltonian Monte Carlo
+
+---
+class: middle
+
+The details of HMC are very complex, and beyond the scope of this presentation. It is mentioned here because it is the main approximation workhorse of the `Stan` language.
+
+In brief, the advantages of HMC lie in the ability to reduce the amount of Random Walk behavior in MCMC processes by enabling distant "leaps" within the parameter space, finding the "best" area from which to sample.
+
+---
+class: middle, center, inverse
+
+# Prior Distributions
+
+$$
+\Theta \sim ?
+$$
+
+---
+
+## Types of Priors
+
+**Informative**:
+
+Used when one has specific knowledge about the distribution of the parameter of interest
+
+--
+
+**Weakly Informative**: 
+
+Used when one has partial knowledge about the distribution of the parameter. When using a weakly informative prior, there is an added benefit of "regularization", which protects against overfitting&lt;sup&gt;1&lt;/sup&gt;
+
+--
+
+**Uninformative**:
+
+Sometimes it helps to think of these as "vague" priors. An example would be when you know the distribution is at least positive.
+
+.footnote[[1] Think [Elastic Net Regression](https://en.wikipedia.org/wiki/Tikhonov_regularization)]
+
+---
+
+## The False Problem of Choice
+
+Opponents of Bayesian methods often cite the issues involved in choice of prior distributions as adding a &lt;font color="maroon"&gt;&lt;b&gt;subjective&lt;/b&gt;&lt;/font&gt; component to our analyses and thus, science.
+
+--
+
+Science is inherently subjective. The inherent flexibility involved in the process of designing and conducting a scientific experiment, and in analyzing its results has a name: [researcher degrees of freedom](https://journals.sagepub.com/doi/10.1177/0956797611417632). 
+
+So, adding one more subjective component a) won't affect things that much, and b) analyzing data from a Bayesian perspective could help statistically address "arbitrary choices".&lt;sup&gt;1&lt;/sup&gt; 
+
+.footnote[[1] Bayesian Model Averaging with Sensitivity Analyses]
+
+---
+class: middle
+
+In addition, as the sample size increases, the prior distribution begins to "fall off"
+
+![](figures/bayes_in_action.png)
+
+In this case, the likelihood will overtake the prior distribution (as long as the model is well specified).
+
+---
+class: middle, center, inverse
+
+![](figures/stan_logo.png)
+
+# Stan
+
+---
+class: middle
+
+## What is `Stan`?
+
+First, `Stan` isn't an acronym, it was named after Stanislaw Ulam, the inventor of Monte Carlo computational methods
+
+Second, I'm just going to copy straight from [mc-stan.org](https://mc-stan.org):
+
+&gt; Stan is a state-of-the-art platform for statistical modeling and high-performance statistical computation ...
+
+It is a program written in C++ designed for building statistical and mathematical models.
+
+---
+class: middle
+
+## What can `Stan` do? 
+
+&gt; Users specify log density functions&lt;sup&gt;1&lt;/sup&gt; in Stan’s probabilistic programming language and get ... full Bayesian Statistical Inference w/ MCMC Sampling
+
+It can also do penalized maximum likelihood estimation&lt;sup&gt;2&lt;/sup&gt;, [approximate variational inference](https://arxiv.org/pdf/1601.00670.pdf), and solve [Ordinary Differential Equation](https://mc-stan.org/users/documentation/case-studies/lotka-volterra-predator-prey.html) systems.
+
+.footnote[[1] This is actually a very important thing to remember when programming in `Stan`]
+
+---
+class: middle
+
+## Syntax &amp; Components
+
+&gt; A Stan program is organized into a sequence of named blocks, the bodies of which consist of variable declarations, followed in the case of some blocks with statements.
+
+---
+class: middle
+
+## Stan Program Skeleton
+
+&lt;div style="height:400px;width:800px;border:1px solid #ccc;font:16px/26px Georgia, Garamond, Serif;overflow:auto;"&gt;
+
+functions { &lt;br&gt;
+ &amp;nbsp; // ... function declarations and definitions ... &lt;br&gt;
+}
+&lt;br&gt;
+&lt;font color="red"&gt;
+data { &lt;br&gt;
+ &amp;nbsp; // ... declarations ... &lt;br&gt;
+} 
+&lt;/font&gt;
+&lt;br&gt;
+transformed data { &lt;br&gt;
+  &amp;nbsp; // ... declarations ... statements ... &lt;br&gt;
+} &lt;br&gt;
+&lt;br&gt;
+&lt;font color="red"&gt;
+parameters { &lt;br&gt;
+  &amp;nbsp; // ... declarations ... &lt;br&gt;
+} 
+&lt;/font&gt;
+&lt;br&gt;
+&lt;br&gt;
+transformed parameters { &lt;br&gt;
+  &amp;nbsp; // ... declarations ... statements ... &lt;br&gt;
+} &lt;br&gt;
+&lt;br&gt;
+&lt;font color="red"&gt;
+model { &lt;br&gt;
+  &amp;nbsp; // ... declarations ... statements ... &lt;br&gt;
+} 
+&lt;/font&gt;
+&lt;br&gt;
+&lt;br&gt;
+generated quantities { &lt;br&gt;
+  &amp;nbsp; // ... declarations ... statements ... &lt;br&gt;
+} &lt;br&gt;
+
+&lt;/div&gt;
+
+The most common blocks are highlighted in &lt;font color="red"&gt;red&lt;/font&gt;
+
+---
+class: middle
+
+## Linear Regression Example
+
+
+```r
+data {
+  int&lt;lower=0&gt; N;       // number of cases
+  vector[N] x;          // predictor (covariate)
+  vector[N] y;          // outcome (variate)
+}
+
+parameters {
+  real alpha;           // intercept
+  real beta;            // slope
+  real&lt;lower=0&gt; sigma;  // outcome noise
+}
+
+model {
+  y ~ normal(alpha + beta * x, sigma);
+  alpha ~ normal(0, 10);
+  beta ~ normal(0, 10);
+  sigma ~ cauchy(0, 5);
+}
+```
+
+---
+
+## A Closer Look at the `model` Block
+
+
+```r
+model {
+  y ~ normal(alpha + beta * x, sigma);
+  alpha ~ normal(0, 10);
+  beta ~ normal(0, 10);
+  sigma ~ cauchy(0, 5);
+}
+```
+
+The implied model,
+
+$$
+`\begin{aligned}
+\pmb{y} &amp; \sim \mathcal{N}(\alpha + \beta x, \sigma) \\
+\alpha  &amp; \sim \mathcal{N}(0, 10) \\
+\beta   &amp; \sim \mathcal{N}(0, 10) \\
+\sigma  &amp; \sim \text{cauchy}(0, 5)
+\end{aligned}`
+$$
+
+---
+class: middle
+
+# [Interfacing with R](https://mc-stan.org/rstan/articles/rstan.html)
+
+--
+
+`Stan` can interface with almost all of the popular "data science" programming languages, Python, Julia, Stata, etc. the only language it has no interface with is SAS.
+
+--
+
+Need to install it first.
+
+
+```r
+install.packages("rstan")
+```
+
+--
+
+Then of course it's not that easy, in order to build and run models you'll need 1) a C++ compiler (e.g., g++), which most modern computers already have, and 2) to configure the tool chain so that R can connect to the C++ compiler. The instructions [here](https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started) are easy to follow and comprehensive.
+
+---
+
+If using Rstudio, you can call `Stan` directly with a "code chunk"
+
+![](figures/stan_in_r.png)
+
+````markdown
+```{stan}
+
+data {
+  int&lt;lower=0&gt; N;       // number of cases
+  vector[N] x;          // predictor (covariate)
+  vector[N] y;          // outcome (variate)
+}
+
+...
+
+``
+````
+
+---
+
+## R Interface to Stan (Cont.)
+
+The other option is to write an external `Stan` script and call it into your R session. The following is an example from the Stan User's Guide,
+
+
+```r
+// saved as schools.stan
+data {
+  int&lt;lower=0&gt; J;         // number of schools 
+  real y[J];              // estimated treatment effects
+  real&lt;lower=0&gt; sigma[J]; // standard error of effect estimates 
+}
+
+parameters {
+  real mu;                // population treatment effect
+  real&lt;lower=0&gt; tau;      // standard deviation in treatment effects
+  vector[J] eta;          // unscaled deviation from mu by school
+}
+
+transformed parameters {
+  vector[J] theta = mu + tau * eta;        // school treatment effects
+}
+
+model {
+  target += normal_lpdf(eta | 0, 1);       // prior log-density
+  target += normal_lpdf(y | theta, sigma); // log-likelihood
+}
+```
+
+---
+class: middle
+
+## Data
+
+Can be in list `format` or a `data.frame`
+
+
+```r
+schools_dat &lt;- list(J = 8, 
+                    y = c(28,  8, -3,  7, -1,  1, 18, 12),
+                    sigma = c(15, 10, 16, 11,  9, 11, 10, 18))
+```
+
+---
+class: middle
+
+## Calling Stan from `R`
+
+
+```r
+library(rstan)
+
+fit &lt;- stan(file = 'models/schools.stan', data = schools_dat)
+```
+
+Or, without the default parameters,
+
+
+```r
+fit &lt;- stan(
+  file = 'models/schools.stan', 
+  data = schools_dat,
+  chains = 3,         # Number of Markov Chains
+  iter = 1000,        # How long should the chains "run" for?
+  warmup = 500,       # throwing out the first 500 samples
+  thin = 2,           # only collect every 2 draws
+  cores = 3           # if running 3 chains, run on 3 cores
+)
+```
+
+---
+class: middle
+
+## Examining the Model
+
+Some things are made easy
+
+
+```r
+print(fit)     # parameters, credible intervals
+plot(fit)      # plot credible intervals
+traceplot(fit) # plot chains for diagnostics
+```
+
+To compute additional quantities (draws, marginal means, posterior predictions), the data will need to be extracted and manipulated manually
+
+
+```r
+fitdat &lt;- rstan::extract(fit)      # output is a list of arrays
+fitdat.df &lt;- as.data.frame(fitdat) # nicer to look at and manipulate 
+```
+
+---
+class: middle, center
+
+# Semi-Automatic Stan
+
+---
+class: middle
+
+## Options
+
+* [rstanarm](https://mc-stan.org/rstanarm/)
+* [brms](https://paul-buerkner.github.io/brms/)
+* [rethinking](https://github.com/rmcelreath/rethinking)&lt;sup&gt;1&lt;/sup&gt;
+
+--
+
+Each of these automate the process of writing the Stan model blocks "under the hood".
+
+.footnote[[1] McElreath, 2020: Statistical Rethinking - limited but useful package]
+
+---
+class: middle, center, inverse
+
+## brms
+
+&lt;u&gt;B&lt;/u&gt;ayesian &lt;u&gt;R&lt;/u&gt;egression &lt;u&gt;M&lt;/u&gt;odels using &lt;u&gt;S&lt;/u&gt;tan
+
+---
+
+## Syntax
+
+`brms` is built and maintained by a [crazy person](https://paul-buerkner.github.io/about/) who has done his best to incorporate almost every aspect of `Stan` into `brms`.
+
+The model building syntax borrows heavily from `lme4`, so it helps to know how to build "random effects" in `lme4`,
+
+![](figures/lme4_formulas.png)
+
+---
+class: middle
+
+## Syntax (Cont.)
+
+But it doesn't stop there, the author has also incorporated the spline building syntax of `mgcv`, a popular Generalized Additive Model (GAM) building software. 
+
+So almost anything `mgcv` can do, `brms` can do&lt;sup&gt;1&lt;/sup&gt;. 
+
+.footnote[[1] A difficulty I've found is in providing a prior for smoothing splines, though this may just be my shortcoming and not a limitation of the software]
+
+---
+
+## Linear Regression Example
+
+Recall:
+
+
+```r
+data {
+  int&lt;lower=0&gt; N;       // number of cases
+  vector[N] x;          // predictor (covariate)
+  vector[N] y;          // outcome (variate)
+}
+
+parameters {
+  real alpha;           // intercept
+  real beta;            // slope
+  real&lt;lower=0&gt; sigma;  // outcome noise
+}
+
+model {
+  y ~ normal(alpha + beta * x, sigma);
+  alpha ~ normal(0, 10);
+  beta ~ normal(0, 10);
+  sigma ~ cauchy(0, 5);
+}
+```
+
+---
+
+In `brms`:
+
+
+```r
+library(brms)
+
+priors &lt;- c(
+  set_prior("normal(0, 10)", class = "Intercept"),
+  set_prior("normal(0, 10)", class = "b", coef = "beta"),
+  set_prior("cauchy(0, 5)",  class = "sigma")
+)
+
+brms_mod &lt;- brm(
+  y ~ x,
+  family = gaussian,
+  prior = priors,
+  data = some_data, # just has to have columns x and y
+  cores = 3,
+  chains = 3,
+  iter = 1000,
+  warmup = 250, # throwing away 250 starting samples from each chain
+  control = list(adapt_delta = 0.99) # not needed for such simple models
+)
+```
+
+---
+
+If we pretend there exists clusters we wish to give varying intercepts to, the syntax changes to
+
+
+```r
+library(brms)
+
+priors &lt;- c(
+  set_prior("normal(0, 10)", class = "Intercept"),
+  set_prior("normal(0, 10)", class = "b", coef = "beta"),
+* set_prior("normal(0, 10)", class = "b", coef = "cluster")
+  set_prior("cauchy(0, 5)",  class = "sigma")
+)
+
+brms_mod &lt;- brm(
+* y ~ x + (1 | cluster),
+  family = gaussian,
+  prior = priors,
+  data = some_data, # just has to have columns x and y
+  cores = 3,
+  chains = 3,
+  iter = 1000,
+  warmup = 250, # throwing away 250 starting samples from each chain
+  control = list(adapt_delta = 0.99) # not needed for such simple models
+)
+```
+
+---
+
+## Examining the fit
+
+`brms` has it's own `s3` methods for printing the fit, plotting model components, diagnostics, etc.
+
+
+```r
+summary(brms_mod)
+```
+
+will print the fit.
+
+plot diagnostics with
+
+
+```r
+plot(
+  brms_mod, 
+  ask = FALSE # it'll ask you for each plot if you don't specify this
+) 
+```
+
+or we can plot conditional effects
+
+
+```r
+plot(conditional_effects(brms_mod), points = TRUE)
+```
+
+---
+
+## Alternatives
+
+--
+
+### rstanarm
+
+I don't know too much about `rstanarm` but it has much of the same functionality as `brms`. 
+
+`brms` has some extra features and `rstanarm` can be faster&lt;sup&gt;1&lt;/sup&gt;.
+
+.footnote[[1] it also plays well with a great marginal means package called `emmeans`, better than `brms` does anyway]
+
+--
+
+### rethinking
+
+The `rethinking` package is most used in conjunction with Richard McElreath's book *Statistical Rethinking*, so it's mostly for pedagogy, but it does make some things easier to extract from models and to work with them.
+
+---
+class: middle, center, inverse
+
+# Examples with VA Data
+
+---
+class: middle, center, inverse
+
+# *neat* things Bayesian models can do
+
+---
+class: middle
+
+## Missing Data
+
+Multiple Imputation is a Bayesian Method, with the missing data being estimated by the posterior predictive distribution of the missing data, given the observed data and some estimate of the priors.
+
+--
+
+Instead of imputing data, and then running an analyses, we can impute during model fitting, providing a singular framework for building models with missing data.
+
+--
+
+This process proceeds by modeling the missing data as a parameter in the posterior, thereby converting the model into a multivariate one, where now instead of just predicting `\(y\)`, `\(X_{miss}\)` is additionally predicted.
+
+---
+class: middle
+
+## Missing Data (cont.)
+
+To build and evaluate a model like this in `Stan`, the [Stan Users Guide](https://mc-stan.org/docs/2_26/stan-users-guide/missing-data-and-partially-known-parameters.html) provides a good starting point.
+
+To build the same model in `brms`, fortunately there is a [vignette for that](https://cran.r-project.org/web/packages/brms/vignettes/brms_missings.html)
+
+--
+
+As an example,
+
+
+```r
+imp_fit &lt;- brm(
+  bf(y | mi() ~ x1 * mi(x2)) + bf(x2 | mi() ~ x1) + set_rescor(FALSE),
+  data = some_data
+)
+```
+
+Where the data `x2` is missing some values.
+
+---
+class: middle
+
+## Measurement Error Models
+
+If we know that a quantity we collected was measured with some error, we can account for the uncertainty in the Bayesian model by treating the *true* quantity as being **missing**.
+
+Using this method will involve a conceptual model of how the measurements are derived from the true values.
+
+If `\(x\)` was measured with error, and the measurement error is known, we can include that measurement error into the model as a standard deviation parameter.
+
+---
+class: middle
+
+## Measurement Error Models (cont.)
+
+To build and evaluate a model like this in `Stan`, the [Stan Users Guide](https://mc-stan.org/docs/2_26/stan-users-guide/measurement-error-and-meta-analysis.html) provides a good starting point.
+
+To build the same model in `brms`, information is sparse but, some [help does exist](http://paul-buerkner.github.io/brms/reference/me.html)
+
+---
+
+class: center, middle
+
+# Thanks!
+
+Slides created via the R package [**xaringan**](https://github.com/yihui/xaringan).
+
+---
+class: center, middle, inverse
+
+# Questions?
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"highlightStyle": "github",
+"highlightLines": true,
+"countIncrementalSlides": false
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();
+(function() {
+  "use strict"
+  // Replace <script> tags in slides area to make them executable
+  var scripts = document.querySelectorAll(
+    '.remark-slides-area .remark-slide-container script'
+  );
+  if (!scripts.length) return;
+  for (var i = 0; i < scripts.length; i++) {
+    var s = document.createElement('script');
+    var code = document.createTextNode(scripts[i].textContent);
+    s.appendChild(code);
+    var scriptAttrs = scripts[i].attributes;
+    for (var j = 0; j < scriptAttrs.length; j++) {
+      s.setAttribute(scriptAttrs[j].name, scriptAttrs[j].value);
+    }
+    scripts[i].parentElement.replaceChild(s, scripts[i]);
+  }
+})();
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();
+// adds .remark-code-has-line-highlighted class to <pre> parent elements
+// of code chunks containing highlighted lines with class .remark-code-line-highlighted
+(function(d) {
+  const hlines = d.querySelectorAll('.remark-code-line-highlighted');
+  const preParents = [];
+  const findPreParent = function(line, p = 0) {
+    if (p > 1) return null; // traverse up no further than grandparent
+    const el = line.parentElement;
+    return el.tagName === "PRE" ? el : findPreParent(el, ++p);
+  };
+
+  for (let line of hlines) {
+    let pre = findPreParent(line);
+    if (pre && !preParents.includes(pre)) preParents.push(pre);
+  }
+  preParents.forEach(p => p.classList.add("remark-code-has-line-highlighted"));
+})(document);</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>
