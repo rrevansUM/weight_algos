@@ -16,7 +16,7 @@ class: center, middle, inverse, title-slide
 ## Weight Collection and Cleaning
 ### Rich Evans (<a href="mailto:Richard.Evans8@va.gov" class="email">Richard.Evans8@va.gov</a>)
 ### US Dept. of Veterans Affairs Center for Clinical Management Research
-### 2021-08-20 (updated: 2021-08-30)
+### 2021-08-20 (updated: 2021-09-01)
 
 ---
 
@@ -25,72 +25,88 @@ class: center, middle, inverse, title-slide
 
 # The Plan
 
-* Intro
-    1. Bayesian vs. Fisherian/Frequentist Methodology
-    2. Some Math
-* Estimation
-    1. Monte Carlo Markov Chains
-        + Hamiltonian Monte Carlo
-* Prior Distributions
-* Stan
-    1. What is it?
-    2. What can it do?
-    3. Syntax &amp; Components
-    4. Interface w/ R
-    5. Semi-automatic Stan with `rstanarm` and `brms`
-* Examples w/ VA data
-    1. Carpal Tunnel Release cohort (Dr. Sears CDA)
-    2. Atypical distributions (LEAP Cohorts)
-    3. Survival/Accelerated Failure Time Models w/ Clusters (Sears HRR Analyses)
-* *Neat* Things
-    1. Missing Data
-    2. Measurement Error Models
-
----
-class: middle
-
-&lt;font color="red"&gt;Preface&lt;/font&gt;: Almost everything I say here can be followed up with "but it's more complicated than that"
+* Intro/Background
+* Data Collection
+    + Weight Data in CDW
+    + SQL Code
+    + Height for BMI
+* Cleaning Weight Data
+    + Algorithms
+        + `weightalgos` package
+    + Common Research Scenarios
+        + Descriptive Statistics
+        + Weight as a Predictor
+        + Weight Change
+        + Weight Trajectories
+        + Facility-Level Measures
+* Pitfalls &amp; Recommendations
+* Further Documentation
+* Questions
 
 ---
 class: inverse, center, middle
 
-# Introduction
-
----
-class: center, middle
-
-# Bayes Rule
-
-$$
-p(\Theta | X) = \frac{p(X|\Theta)p(\Theta)}{p(X)}
-$$
-Where `\(\Theta = \{ \theta_1, ...,\theta_k \}\)` represents the set of parameters and `\(X\)` the data.
-
----
-class: center, middle
-
-# Bayesian vs. Frequentist Methodology
+# Intro/Background
 
 ---
 class: middle
 
-**Frequentist**:
+Our work on body weight measurements starts with our literature review published in *Obesity Reviews*,
 
-In a frequentist model, *probability* is the limit of the relative frequency of an event after many trials.
+![Obesity Reviews](figures/obesity reviews.png)
 
-$$
-p = \lim_{n \rightarrow \infty} \text{RF}
-$$
+---
+class: middle
 
-This method calculates the *probability* that the experiment would have the same outcomes if you were to replicate the same conditions again. Thus, data are a repeatable random sample - this frequency exists but the underlying parameters are fixed.
+...and continued in our cyberseminar
+
+![Cyberseminar](figures/Cyberseminar.png)
+
+---
+class: middle
+
+# Objectives
+
+1. Compare algorithms for extracting and processing clinical weight measures from CDW databases.  
+
+2. Provide guidance and recommendations for choosing algorithms in research and evaluation.
 
 --
 
-**Bayesian**
+More about objectives and motivations later ...
 
-Bayesians define a *probability* similar to how the "layman" might - namely an indication of the plausibility of a proposition or a situation.
+---
+class: middle, inverse, center
 
-Unknown quantities (parameters) are treated probabilistically and the state of the world can always be updated. Data are observed from the realized sample, it is the data which are fixed.
+# Data Collection
+
+---
+class: middle
+
+Weight data in CDW can be found in `CDWWork.Vital.VitalSign` table
+
+--
+
+Pretend you have some cohort of patients in a temp table `#samp2016`
+
+--
+
+
+```r
+SELECT a.*,
+       b.VitalSignTakenDateTime AS WeightDateTime,
+       b.VitalResultNumeric AS Weight,
+       CAST(CONVERT(VARCHAR(8), b.VitalSignTakenDateTime, 112) AS date) AS WeightDate
+    INTO #PCPWeights2016
+        FROM #samp2016 AS a
+            LEFT JOIN Vital.VitalSign AS b
+                ON a.PatientSID = b.PatientSID
+            LEFT JOIN Dim.VitalType AS c
+                ON b.VitalTypeSID = c.VitalTypeSID
+        WHERE c.VitalType LIKE '%weight%'
+              AND b.EnteredInErrorFlag IS NULL
+```
+
 
 ---
 class: middle, center
