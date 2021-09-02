@@ -103,50 +103,87 @@ SELECT a.*,
                 ON b.VitalTypeSID = c.VitalTypeSID
         WHERE c.VitalType LIKE '%weight%'
               AND b.EnteredInErrorFlag IS NULL
+-- nrow = 3345553, ncol = 19
 ```
 
 ---
-class: middle, center
+class: middle
 
-# Bayes Rule Again  
+If you're collecting a very large sample but only want weights collected in a certain date range, you may run into <font style="color:red">long running process</font> issues with SQL Server
 
-$$
-p(\Theta | X) = \frac{p(X|\Theta)p(\Theta)}{p(X)}
-$$
----
-class: middle, center
+--
 
-$$
-p(\Theta | X) = \frac{\color{red}{p(X|\Theta)}p(\Theta)}{p(X)}
-$$
-
-Frequentist methods focus on estimating the likelihood: $Lik(\Theta) = \color{red}{p(X | \Theta)}$
+```{r, echo = TRUE, eval = FALSE}
+SELECT *
+    INTO #PCPWindowWeights2016
+        FROM #PCPWeights2016
+        WHERE WeightDateTime >= DATEADD(year, -2, VisitDateTime)
+              AND 
+              WeightDateTime <= DATEADD(year,  2, VisitDateTime)
+-- nrow = 1220985, ncol = 13
+```
 
 ---
 class: middle
- 
+
+<font style="color:#182F53">Weight</font> will often be combined with <font style="color:#F57A4D">Height</font> data to compute <font style="color:#9C3725">BMI</font>.  
+
+--
 <br>
 <br>
- 
-$$
-\color{blue}{p(\Theta | X)} = \frac{p(X|\Theta)p(\Theta)}{p(X)}
-$$
+<font style="color:#F57A4D">Height</font> data can be found similar to <font style="color:#182F53">Weight</font>
 
-Bayesian methods focus on estimating the whole thing, $\color{blue}{p(\Theta | X)}$, also known as the *Posterior*
-
----
-
-# Bayes Theorem Components
-
-$$
-\color{blue}{p(\Theta | X)} = \frac{\color{red}{p(X|\Theta)} \color{green}{p(\Theta)}}{p(X)}
-$$
 --
 
-$\color{red}{p(X | \Theta)}$ = Likelihood  
-$\color{green}{p(\Theta)}$ = Prior  
-$p(X)$ = Evidence  
-$\color{blue}{p(\Theta | X)}$ = Posterior
+```{r, echo = TRUE, eval = FALSE}
+SELECT a.PatientICN,
+       a.PatientSID,
+       a.VisitDateTime,
+       b.VitalSignTakenDateTime AS HeightDateTime,
+       b.VitalResultNumeric AS Height,
+       CAST(CONVERT(VARCHAR(8), b.VitalSignTakenDateTime, 112) AS date) AS HeightDate
+    INTO #Heights
+        FROM (
+              SELECT DISTINCT PatientICN,
+                     PatientSID,
+                     VisitDateTime
+                FROM NCP_DCEP.Samp.NationalWeightSamples
+             ) AS a
+            LEFT JOIN Vital.VitalSign AS b
+                ON a.PatientSID = b.PatientSID
+            LEFT JOIN Dim.VitalType AS c
+                ON b.VitalTypeSID = c.VitalTypeSID
+        WHERE c.VitalType LIKE '%height%'
+              AND b.EnteredInErrorFlag IS NULL
+-- nrow = 7338348, ncol = 7
+```
+
+---
+class: middle
+
+# Pointers
+
+1. Patient <font style="color:#F57A4D">Height</font> is collected less frequently than <font style="color:#182F53">Weight</font>, so it's usually a good idea to *look back* further than you would for <font style="color:#182F53">Weight</font>
+
+--
+
+2. Since I'm only taking `VitalResultNumeric` for both <font style="color:#182F53">Weight</font> and <font style="color:#F57A4D">Height</font>, there won't be any `CHAR` contaminants in the variables. That *usually* leaves only numeric issues that may appear as **outliers**.
+
+---
+class: middle, inverse, center
+
+# Cleaning Weight Data
+
+---
+class: middle
+
+# Algorithms
+
+From our systematic literature review We identified 39 published studies that used the CDW to define patient weight outcomes.
+
+--
+
+Of the 39 studies, 33 included a weight cleaning algorithm that could be implemented and replicated in the current work.
 
 ---
 

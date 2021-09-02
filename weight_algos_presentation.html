@@ -16,7 +16,7 @@ class: center, middle, inverse, title-slide
 ## Weight Collection and Cleaning
 ### Rich Evans (<a href="mailto:Richard.Evans8@va.gov" class="email">Richard.Evans8@va.gov</a>)
 ### US Dept. of Veterans Affairs Center for Clinical Management Research
-### 2021-08-20 (updated: 2021-09-01)
+### 2021-08-20 (updated: 2021-09-02)
 
 ---
 
@@ -83,7 +83,9 @@ class: middle, inverse, center
 ---
 class: middle
 
-Weight data in CDW can be found in `CDWWork.Vital.VitalSign` table
+# Weight Measurements
+
+Weight in CDW can be found in `CDWWork.Vital.VitalSign` table
 
 --
 
@@ -105,51 +107,89 @@ SELECT a.*,
                 ON b.VitalTypeSID = c.VitalTypeSID
         WHERE c.VitalType LIKE '%weight%'
               AND b.EnteredInErrorFlag IS NULL
+-- nrow = 3345553, ncol = 19
 ```
-
-
----
-class: middle, center
-
-# Bayes Rule Again  
-
-$$
-p(\Theta | X) = \frac{p(X|\Theta)p(\Theta)}{p(X)}
-$$
----
-class: middle, center
-
-$$
-p(\Theta | X) = \frac{\color{red}{p(X|\Theta)}p(\Theta)}{p(X)}
-$$
-
-Frequentist methods focus on estimating the likelihood: `\(Lik(\Theta) = \color{red}{p(X | \Theta)}\)`
 
 ---
 class: middle
- 
-&lt;br&gt;
-&lt;br&gt;
- 
-$$
-\color{blue}{p(\Theta | X)} = \frac{p(X|\Theta)p(\Theta)}{p(X)}
-$$
 
-Bayesian methods focus on estimating the whole thing, `\(\color{blue}{p(\Theta | X)}\)`, also known as the *Posterior*
+If you're collecting a very large sample but only want weights collected in a certain date range, you may run into &lt;font style="color:red"&gt;long running process&lt;/font&gt; issues with SQL Server
 
----
-
-# Bayes Theorem Components
-
-$$
-\color{blue}{p(\Theta | X)} = \frac{\color{red}{p(X|\Theta)} \color{green}{p(\Theta)}}{p(X)}
-$$
 --
 
-`\(\color{red}{p(X | \Theta)}\)` = Likelihood  
-`\(\color{green}{p(\Theta)}\)` = Prior  
-`\(p(X)\)` = Evidence  
-`\(\color{blue}{p(\Theta | X)}\)` = Posterior
+
+```r
+SELECT *
+    INTO #PCPWindowWeights2016
+        FROM #PCPWeights2016
+        WHERE WeightDateTime &gt;= DATEADD(year, -2, VisitDateTime)
+              AND 
+              WeightDateTime &lt;= DATEADD(year,  2, VisitDateTime)
+-- nrow = 1220985, ncol = 13
+```
+
+---
+class: middle
+
+&lt;font style="color:#182F53"&gt;Weight&lt;/font&gt; will often be combined with &lt;font style="color:#F57A4D"&gt;Height&lt;/font&gt; data to compute &lt;font style="color:#9C3725"&gt;BMI&lt;/font&gt;.  
+
+--
+&lt;br&gt;
+&lt;br&gt;
+&lt;font style="color:#F57A4D"&gt;Height&lt;/font&gt; data can be found similar to &lt;font style="color:#182F53"&gt;Weight&lt;/font&gt;
+
+--
+
+
+```r
+SELECT a.PatientICN,
+       a.PatientSID,
+       a.VisitDateTime,
+       b.VitalSignTakenDateTime AS HeightDateTime,
+       b.VitalResultNumeric AS Height,
+       CAST(CONVERT(VARCHAR(8), b.VitalSignTakenDateTime, 112) AS date) AS HeightDate
+    INTO #Heights
+        FROM (
+              SELECT DISTINCT PatientICN,
+                     PatientSID,
+                     VisitDateTime
+                FROM NCP_DCEP.Samp.NationalWeightSamples
+             ) AS a
+            LEFT JOIN Vital.VitalSign AS b
+                ON a.PatientSID = b.PatientSID
+            LEFT JOIN Dim.VitalType AS c
+                ON b.VitalTypeSID = c.VitalTypeSID
+        WHERE c.VitalType LIKE '%height%'
+              AND b.EnteredInErrorFlag IS NULL
+-- nrow = 7338348, ncol = 7
+```
+
+---
+class: middle
+
+# Pointers
+
+1. Patient &lt;font style="color:#F57A4D"&gt;Height&lt;/font&gt; is collected less frequently than &lt;font style="color:#182F53"&gt;Weight&lt;/font&gt;, so it's usually a good idea to *look back* further than you would for &lt;font style="color:#182F53"&gt;Weight&lt;/font&gt;
+
+--
+
+2. Since I'm only taking `VitalResultNumeric` for both &lt;font style="color:#182F53"&gt;Weight&lt;/font&gt; and &lt;font style="color:#F57A4D"&gt;Height&lt;/font&gt;, there won't be any `CHAR` contaminants in the variables. That *usually* leaves only numeric issues that may appear as **outliers**.
+
+---
+class: middle, inverse, center
+
+# Cleaning Weight Data
+
+---
+class: middle
+
+# Algorithms
+
+From our systematic literature review We identified 39 published studies that used the CDW to define patient weight outcomes.
+
+--
+
+Of the 39 studies, 33 included a weight cleaning algorithm that could be implemented and replicated in the current work.
 
 ---
 
