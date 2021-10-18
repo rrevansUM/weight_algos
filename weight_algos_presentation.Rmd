@@ -3,9 +3,11 @@ title: "Body Weight Measurements in the VA CDW"
 subtitle: "Weight Collection and Cleaning"
 author: "Rich Evans (Richard.Evans8@va.gov)"
 date: "2021-08-20 (updated: `r Sys.Date()`)"
-institute: "US Dept. of Veterans Affairs Center for Clinical Management Research"
+institute: "US Dept. of Veterans Affairs\n\n Center for Clinical Management Research"
 output:
   xaringan::moon_reader:
+    self_contained: true
+    css: ["default", "default-fonts", "hygge"]
     lib_dir: libs
     nature:
       highlightStyle: github
@@ -14,10 +16,33 @@ output:
 ---
 
 ```{r setup, include = FALSE}
-options(htmltools.dir.version = FALSE)
+knitr::opts_chunk$set(
+  htmltools.dir.version = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+options(width = 80)
 
 library(tidyverse)
 library(xaringan)
+
+
+bootstrap_options <- c("striped", "hover", "condensed")
+
+tableStyle <- function(t,
+                       boot_opt = bootstrap_options, 
+                       full_width = TRUE,
+                       digits = 2) {
+  
+  t %>%
+    mutate_if(is.numeric, round, digits = digits) %>%
+    knitr::kable() %>%
+    kableExtra::kable_styling(
+      bootstrap_options = boot_opt,
+      full_width = full_width
+    )
+}
 ```
 
 # The Plan
@@ -36,8 +61,7 @@ library(xaringan)
         + Weight Change
         + Weight Trajectories
         + Facility-Level Measures
-* Pitfalls & Recommendations
-* Further Documentation
+* Findings & Recommendations
 * Questions
 
 ---
@@ -109,7 +133,7 @@ SELECT a.*,
 ---
 class: middle
 
-If you're collecting a very large sample but only want weights collected in a certain date range, you may run into <font style="color:red">long running process</font> issues with SQL Server
+If you're collecting a very large sample but only want weights collected in a certain date range, you may run into .red[long running process] issues with SQL Server
 
 --
 
@@ -177,736 +201,915 @@ class: middle, inverse, center
 ---
 class: middle
 
-# Algorithms
+## Motivations
 
-From our systematic literature review We identified 39 published studies that used the CDW to define patient weight outcomes.
+Weight can vary substantially within patient, may have differing units, and may be subject to data entry errors.
+
+--
+
+No standard for processing and cleaning EHR weight.
+
+--
+
+Researchers are left to develop their own algorithms to define weight, resulting in many different definitions in the published literature.
+
+--
+
+Range from simple cut offs for implausible values to more computationally complex algorithms requiring significant coding and processing capacity, as well as difficulties in replication.
+
+---
+class: middle
+
+.content-box-blue[Unknown how resulting weight measures may vary based on how researchers process and
+clean the data, and subsequently, **the impact of algorithm choice on results and research findings is unknown.**]
+
+---
+class: middle
+
+## Algorithms
+
+From our systematic literature review (Annis A, *et al.* 2020) we identified 39 published studies that used the CDW to define patient weight outcomes.
 
 --
 
 Of the 39 studies, 33 included a weight cleaning algorithm that could be implemented and replicated in the current work.
 
+--
+
+For analytic purposes, we chose 12 algorithms that represent each "type" of approach. 
+
 ---
+class: middle
 
-# An Example
+### Classification
 
-OLS Regression
-
-$$
-Y_i = \beta_0 + \beta_1X_i + \epsilon_i
-$$
-
-Where $\epsilon_i \sim N(0, \sigma^2)$
+We divided the 12 algorithms into two conceptual groups:
 
 --
 
-## Bayesian Formulation
-
-$$
-p(\Theta | X) = p(\{ \sigma^2, \beta_0, \beta_1 \} | \pmb{y})
-$$
----
-
-## Example (cont.)
-
-The likelihood takes the form,
-
-$$
-p(\pmb{y} | \beta_0, \beta_1, \sigma^2) = (\sigma^2)^{-n/2} \exp \left(\ -\frac{1}{2\sigma^2} (\pmb{y} - \pmb{X}\pmb{\beta})^T(\pmb{y} - \pmb{X}\pmb{\beta}) \right\)
-$$
+1. Those that include .blue[all weight measurements] during a specified time frame  
+2. Those that are .red[time-period specific]
 
 --
 
-The prior, if we want a tractable solution<sup>1</sup>, is the product of an [inverse-gamma distribution](https://en.wikipedia.org/wiki/Inverse-gamma_distribution)<sup>2</sup> and a conditional normal distribution<sup>3</sup>
+.red[Time period specific] algorithms selected "baseline, 6 month, and 12 month" time periods and included weight measurements during specified windows around those dates.
 
-$$
-p(\beta_0, \beta_1, \sigma^2) = p(\sigma^2)p(\beta_0, \beta_1 | \sigma^2)
-$$
-$p(\sigma^2) \sim \Gamma^{-1}(\nu, s^2)$
+--
 
-$p(\pmb{\beta} | \sigma^2) \sim N(\pmb{\mu}, \sigma^2 \Sigma)$
+.content-box-grey[Note] not all algorithms fit exactly into these groups.
 
-Consolidating $\{\beta_0, \beta_1 \}$ into matrix notation $\pmb{\beta}$
+---
+class: middle, center
+
+Conceptual Description of Main Exclusions After Applying Each Algorithm
+
+```{r, echo = FALSE, eval = TRUE, out.width = 870, out.height = 466}
+knitr::include_graphics("figures/algo_table.png")
+```
+
+---
+class: middle
+
+## Translation
+
+Each algorithm was then translated into pseudocode then into **R** code **as best as possible** from the published methods.
+
+---
+class: middle
+background-image: url("figures/bookdown_logo.png")
+background-position: right top
+
+### Bookdown
+
+All code to reproduce our analyses can be found online at [bookdown.org/revans_evans/weight_algorithms_analyses/](https://bookdown.org/revans_evans/weight_algorithms_analyses/)<sup>1</sup>
 
 .footnote[
-[1] When you set your own prior, there may be no analytical solution  
-[2] Technically called a Conjugate Prior  
-[3] Thanks to Bayes Rule again
+[1] I've been meaning to switch out *revans_evans* for *CCMRcodes*, but it's a bit involved
 ]
 
 ---
+class: middle
+background-image: url("figures/GitHub-Mark-120px-plus.png")
+background-position: right top
 
-## Example (cont.)
+### GitHub
 
-That whole form can be really complicated:
-
-$$
-p(\Theta | \pmb{y}) \propto (\sigma^2)^{-n/2} \exp \left(\ -\frac{1}{2\sigma^2} (\pmb{y} - \pmb{X}\pmb{\beta})^T(\pmb{y} - \pmb{X}\pmb{\beta}) \right\)
-$$
-$$
-\cdot (\sigma^2)^{-k/2} \exp \left(\ -\frac{1}{2\sigma^2} (\pmb{\beta} - \pmb{\mu_0})^T \pmb{\Sigma} (\pmb{\beta} - \pmb{\mu_0}) \right\)
-$$
-$$
-\cdot (\sigma^2)^{-(\nu + 1)} \exp \left( \frac{s^2}{\sigma^2} \right)
-$$
+All algorithms can be found on the project Github [github.com/CCMRcodes/WeightAlgorithms](https://github.com/CCMRcodes/WeightAlgorithms).
 
 --
 
-And that makes estimation with arbitrary priors quite difficult. But that's not the even the worst part ...
+Most are written in ![R](figures/R_logo.svg.png), a few in **SAS**<sup>1</sup>
 
----
-
-## Example (cont.)
-
-For complex models with many parameters, the posterior distribution takes the form
-
-$$
-p(\theta | \pmb{y}) = \frac{\text{Lik}(\theta|\pmb{y})p(\theta)}{\int_\Theta \text{Lik}(\theta | \pmb{y})p(\theta)d\theta}
-$$
-
-and it is this denominator integral that makes things really difficult.
-
---
-
-### However, 
-
-$\int_\Theta \text{Lik}(\theta | \pmb{y})p(\theta)d\theta$, the marginal distribution, actually does not depend on $\Theta$, (it's being integrated out) so we can write our posterior like this,
-
-$$
-p(\Theta | \pmb{y}) \propto \text{Lik}(\Theta | \pmb{y})p(\Theta)
-$$
-and this quantity can be used to compute point and interval estimates. 
+.footnote[
+ [1] Maciejewski M., *et al.* 2016 coded in R and SAS thanks to Ted Berkowitz (Theodore.Berkowitz@va.gov)
+]
 
 ---
 class: middle
 
-But, one of the biggest advantages of Bayesian methods involves the ability to derive the posterior completely, which involves the estimation of difficult quantities with no *closed form* solutions.
-
-And thus, we turn to numerical methods ...
-
----
-class: center, middle, inverse
-
-# Estimation: Markov Chain Monte Carlo
-
----
-
-## Monte Carlo Methods
-
-Any computational method designed to estimate some deterministic quantity using repeated random sampling. The method relies almost entirely on the [law of large numbers](https://en.wikipedia.org/wiki/Law_of_large_numbers)
-
-> As the number of i.i.d., randomly generated variables increases, their sample mean approaches the theoretical mean.
+### `weightalgos` package
 
 --
 
-## Markov Chains<sup>1</sup>
+Main idea behind the package was to make my life easier. Second to that, to aid analysts and researchers in cleaning weight data<sup>1</sup>
 
-In math speak: A collection of random variables ${X_t}$ having the property that, given the present, the future is conditionally independent of the past.
+.footnote[
+ [1] And possibly any continuous data collected in a similar matter to weight (e.g., lab values, clinical score, currency)
+]
 
-Put simply: Mathematical "models" that hop from state to state, where the next state of the model, only depends on the current state.
+--
 
-.footnote[[1] My favorite explanation of Markov Chains https://setosa.io/ev/markov-chains/]
+Currently lives in the `CCMRcodes` GitHub
 
----
+--
 
-# Markov Chain Monte Carlo
+I did not submit it to **CRAN** due to some boilerplate warnings but it can be downloaded with
 
-<br>
-<br>
-<br>
-
-Algorithms designed to sample from a probability distribution.
-
-<br>
-
-Unlike Monte Carlo sampling methods that are able to draw independent samples from a distribution, MCMC methods draw samples where the next sample is dependent on the existing sample. This is important because we are often trying to derive multi-dimensional posteriors.
+```{r, echo = TRUE, eval = FALSE}
+devtools::install_github("CCMRcodes/WeightAlgorithms/weightalgos", build_vignettes = TRUE)
+```
 
 ---
 class: middle
 
-Focusing on the right side figure,
+Then view the vignette with
 
-![MCMC Example](figures/single chain.jpg)
+```{r, echo = TRUE, eval = FALSE}
+library(weightalgos)
 
-this "fuzzy caterpillar" is the Markov Chain (3 different chains shown here) as it searched the parameter space for the posterior distribution of the intercept term in a regression model.
+vignette("compare_algorithms")
+```
 
-<br>
+```{r, echo = FALSE, eval = TRUE}
+library(weightalgos)
+```
 
-The result is the full distribution of the plausible intercept terms in *n* simulated draws from the regression model, the figure on the left.
+![Screen shot of Vignette Pop-Up](figures/vignette.png)
+
+---
+class: middle
+
+### Functions in `weightalgos`
+
+#### 12 Main Functions
+
+Each algorithm is named after the first author in each study listed in the table above.
+
+--
+
+```{r}
+lsf.str("package:weightalgos")[1:10]
+```
+
+--
+
+For example, `buta()`, `breland()`, `chan()`, etc. are the main algorithms, all else are either used internally or elsewhere.
+
+---
+class: middle
+
+### Manual Pages
+
+Details and examples for each algorithm/function can be investigated in more detail by visiting the help pages, e.g., `?janney` or `help(janney)`
+
+```{r, echo = TRUE, eval = FALSE}
+help("janney")
+```
+
+---
+class: middle
+
+### Usage and Parameters
+
+Each algorithm differs in how they are used, and in parameterization<sup>1</sup>
+
+--
+
+Parameterization follows the conceptual groups, 
+
+1. Those that include .blue[all weight measurements] during a specified time frame  
+2. Those that are .red[time-period specific]
+
+with some exceptions
+
+.footnote[[1] Function Arguments]
+
+---
+class: middle
+
+### Example
+
+#### .red[time-period specific]
+
+```{r, echo = TRUE, eval = FALSE}
+janney_df <- janney(
+  df = samp,
+  id = "id",
+  measures = "Weight",
+  tmeasures = "WeightDate",
+  start_point = "VisitDate",
+  t = c(0, 183, 365),
+  windows = c(30, 60, 60),
+  outliers = list(
+    LB = c(91, 72, 72),
+    UB = c(600, 650, 650)
+  )
+)
+```
+
+> For grouped time series, (e.g., per person) Define time points and collect measurements, optionally applying windows for possible data points for each time point, then removing outliers. Based on work by Janney *et al.* 2016.
+
+--
+
+For an explanation of each argument above, use `help(janney)`
+
+---
+class: middle
+
+Before explaining the nuances of the `janney()` function, it will help to have sample data
+
+---
+class: middle
+
+# Sample Data
+
+We will run each algorithm on our sample of weights taken from the VA CDW, included in the package as `cdw1000`. For our purposes I will generate outlier weights based on a skew-normal distribution, for 5% of the values.
+
+```{r}
+library(tidyverse)   # data management suite
+library(data.table)  # used by weightalgos (making explicit)
+library(weightalgos)
+
+data(cdw1000)
+
+samp <- cdw1000 %>%
+  sample_n(n() * 0.025) %>%     # sample 2.5% of n for lower
+  mutate(Weight = sn::rsn(n(), 100, -25, 3)) %>%
+  select(id:Weight) %>%
+  right_join(cdw1000, by = c("id", "WeightDate")) %>%
+  mutate(
+    Weight_aug = coalesce(Weight.x, Weight.y),
+    outlier = ifelse(!is.na(Weight.x), 1, 0)
+  ) %>%
+  select(-Weight.x) %>%
+  rename(Weight_orig = Weight.y)
+```
+
+```{r, echo = FALSE, eval = TRUE}
+samp <- samp %>%
+  filter(outlier == 0) %>%
+  sample_n(n() * 0.025) %>%     # sample 2.5% of n for upper
+  mutate(Weight_aug = sn::rsn(n(), 400, 150, 3)) %>%
+  select(id, WeightDate, Weight_aug) %>%
+  right_join(samp, by = c("id", "WeightDate")) %>%
+  mutate(
+    Weight_aug = coalesce(Weight_aug.x, Weight_aug.y),
+    outlier = ifelse(!is.na(Weight_aug.x), 1, outlier)
+  ) %>%
+  select(-Weight_aug.x, -Weight_aug.y) %>%
+  distinct()
+```
+
+---
+class: middle
+
+## Simulating Outliers
+
+```{r, echo = FALSE, eval = TRUE, fig.height = 6, fig.width = 10}
+or_pu <- c("#631647", "#FF8B0D")
+
+samp %>%
+  select(id, Weight_orig, Weight_aug) %>%
+  pivot_longer(
+    cols = starts_with("Weight"), 
+    names_to = "weight_version"
+  ) %>%
+  mutate(
+    weight_version = factor(
+      weight_version,
+      c("Weight_orig", "Weight_aug"),
+      c("Original", "Augmented")
+    )
+  ) %>%
+  ggplot(aes(
+    x = value, 
+    fill = factor(weight_version),
+    color = factor(weight_version)
+  )) +
+  facet_wrap(vars(weight_version), nrow = 2) +
+  geom_density(alpha = 0.5) +
+  geom_rug() +
+  theme_void(16) +
+  scale_fill_manual(values = or_pu) +
+  scale_color_manual(values = or_pu) +
+  theme(
+    legend.position = "none",
+    strip.text.x = element_text(margin = margin(0.5, 0, 0.5, 0, "cm"))
+  )
+```
+
+---
+class: middle
+
+### `janney()` Revisited
+
+```{r, echo = TRUE, eval = FALSE}
+janney_df <- janney(
+  df = samp,
+  id = "id",
+  measures = "Weight_aug",
+  tmeasures = "WeightDate",
+  start_point = "VisitDate",
+  ...
+)
+```
+
+Input `df` needs to be *long-form* (multiple rows per record ID)
+
+```{r, echo = FALSE, eval = TRUE}
+samp %>%
+  select(id, WeightDate, VisitDate, Weight_aug) %>%
+  arrange(id, WeightDate) %>%
+  head(6) %>%
+  tableStyle()
+```
+
+---
+class: middle
+
+### time-points
+
+```{r, echo = TRUE, eval = FALSE}
+janney_df <- janney(
+  ...
+  t = c(0, 183, 365),
+  ...
+)
+```
+
+With these algorithms (time-period specific), the user must choose the time-point at which to "collect" data
+
+--
+
+> `t`: numeric vector of time points to collect measurements, eg. c(0, 183, 365) for measure collection at t = 0, t = 180 (6 months from t = 0), and t = 365 (1 year from t = 0). Default is c(0, 183, 365) according to Janney *et al.* 2016
+
+---
+class: middle
+
+### Windows
+
+```{r, echo = TRUE, eval = FALSE}
+janney_df <- janney(
+  ...
+  windows = c(30, 60, 60),
+  ...
+)
+```
+
+In a cohort collected from EHR data, it is rare to find an exact time-point (`WeightDate`) containing a weight, so researchers use windows around these dates for collection
+
+--
+
+> `windows`: numeric vector of measurement collection windows to use around each time point in `t`. E.g. Janney et al. 2016 use `c(30, 60, 60)` for `t` of `c(0, 18, 365)`, implying that the closest measurement `t = 0` will be collected 30 days prior to and 30 days post start_point. Subsequent measurements will be collected 60 days prior to and 60 days post t0+182.5 days, and t0+365 days.
+
+--
+
+To Clarify,
+
+$$
+[0 \pm 30 \ \text{days}], ..., [183 \pm 60 \ \text{days}], ..., [365 \pm 60 \ \text{days}]
+$$
+
+---
+class: middle
+
+### Outliers
+
+```{r, echo = TRUE, eval = FALSE}
+janney_df <- janney(
+  ...
+  outliers = list(
+    LB = c(91, 72, 72),
+    UB = c(600, 650, 650)
+  )
+)
+```
+
+Upper and lower bounds of plausible weight values, it is an optional argument.
+
+--
+
+> `outliers`: Object of type list with numeric inputs corresponding to the upper and lower bound for each time entry in parameter `t`. Default is `list(LB = c(91, 72, 72), UB = c(600, 650, 650))` for `t = c(0, 182.56, 365)`, differing between baseline and subsequent measurment collection dates. If not specified then only the subsetting and window functions will be applied.
+
+---
+class: middle
+
+### Run Function, check Output
+
+```{r}
+janney_df <- janney(
+   df = samp,
+   id = "id",
+   measures = "Weight_aug",
+   tmeasures = "WeightDate",
+   start_point = "VisitDate"
+  )
+```
+
+```{r, echo = FALSE, eval = TRUE}
+janney_df %>%
+  arrange(id, WeightDate) %>%
+  head() %>%
+  select(id, WeightDate, Weight_aug, dtime:measout) %>%
+  tableStyle()
+```
+
+---
+class: middle
+
+### Example
+
+#### .blue[Include all weight measurements]
+
+```{r, echo = TRUE, eval = FALSE}
+maguen_df <- maguen(
+  df = samp,
+  id = "id",
+  measures = "Weight_aug",
+  tmeasures = "WeightDate",
+  outliers = list(LB = 70, UB = 700),
+  variables = c("Age", "Sex"),
+  resid_threshold = 10,
+  add_internals = FALSE,
+  ...
+)
+```
+
+> For grouped time series, (e.g., per person) `maguen` removes outliers, then models patients' weight trajectories with a linear mixed model with a random slope and intercept, adjusted for age and gender, it then removes measurements where the residual meets a certain threshold. Based on work by Maguen *et al.* 2013
+
+---
+class: middle
+
+### No Start-Point
+
+```{r, echo = TRUE, eval = FALSE}
+maguen_df <- maguen(
+  df = samp,
+  id = "id",
+  measures = "Weight_aug",
+  tmeasures = "WeightDate",
+  outliers = list(LB = 70, UB = 700),
+  ...
+)
+```
+
+Same as `janney()`, but no baseline starting point
+
+---
+class: middle
+
+### Optional Adjustment Variables
+
+```{r, echo = TRUE, eval = FALSE}
+maguen_df <- maguen(
+  ...
+  variables = c("Age", "Sex"),
+  ...
+)
+```
+
+> `variables`: character vector describing the terms in `df` to include on the RHS of the internal mixed model. E.g., c("Age", "Gender") would generate a model of the form `measures ~ Age + Gender + Time + (1 + Time | id)`.
+
+---
+class: middle
+
+### Residual Threshold $|e_i| \ge k$
+
+```{r, echo = TRUE, eval = FALSE}
+maguen_df <- maguen(
+  ...
+  resid_threshold = 10,
+  ...
+)
+```
+
+> `resid_threshold`: single numeric value to be used as a cut off value for the conditional (response) residual for each measurement. Values closer to zero are more conservative.
+
+---
+class: middle
+
+### Run Function, check Output
+
+```{r}
+maguen_df <- maguen(
+  df = samp,
+  id = "id",
+  measures = "Weight_aug",
+  tmeasures = "WeightDate",
+  outliers = list(LB = 70, UB = 700),
+  variables = c("Age", "Sex"),
+  resid_threshold = 15,
+  add_internals = TRUE
+)
+```
+
+```{r, echo = FALSE, eval = TRUE}
+maguen_df %>%
+  select(id, WeightDate, t, Weight_aug, measout) %>%
+  head() %>%
+  tableStyle()
+```
+
+---
+class: middle
+
+### Alternatively Use `all_algos()`
+
+**Run all measurement cleaning algorithms simultaneously**
+
+> `all_algos` runs all 12 algorithms with default settings and outputs a named list with each result. Each algorithm requires a basic set of data: a patient identifier, `id`; the measures to clean, `measures` (e.g., weight, continuous lab data, etc.); a recorded time at which the measure was taken `tmeasures`. Some require an index date, `StartPoint` (Janney *et al.* 2016, Goodrich *et al.* 2016, Jackson *et al.* 2015, Kazerooni & Lim 2016, Rosenberger *et al.* 2011), Maguen *et al.* 2013 adjusts for optional demographic variables (e.g., age, sex). Buta *et al.* 2018 stands out, requiring BMI measurements as the unit of measurement measures. 
+
+Thus, in order to fully utilize this function, `df` needs to have at least `id`, `measures`, `tmeasures`, `StartPoint`, and `BMI`.
+
+```{r, echo = FALSE, eval = TRUE}
+all_ls <- all_algos(
+  samp, 
+  id = "id", 
+  measures = "Weight_aug", 
+  tmeasures = "WeightDate", 
+  start_point = "VisitDate",
+  variables = c("Age", "Sex")
+)
+```
+
+---
+class: middle, inverse, center
+
+# Common Research Scenarios
+
+---
+class: middle
+
+## Common uses of weight measures in research & evaluation
+
+* **Descriptive**
+* As a **Predictor** in studies that seek to adjust for the effect of baseline weight when examining the association between another variable and an outcome
+* **Weight Change** in studies examining the effects of an independent variable on patient weight or weight change over time
+* Patient **weight Trajectories**
+* **Facility Level Effects** in studies examining performance measures across facilities, groups, clusters, etc.
+
+---
+class: middle
+
+## Descriptive Statistics
+
+.full-width[.content-box-blue[All algorithms were applied to the data for each of the two cohorts and compared based on descriptive statistics, including the number of measures and patients retained, the mean, standard deviation, median, and range of weight values.]]
+
+--
+
+.full-width[.content-box-blue[For comparison, we also included the descriptives based on the raw, unprocessed weight data during the time frame.]]
 
 ---
 class: middle, center
 
-# Hamiltonian Monte Carlo
+### Varying Number of Patients Retained
 
----
-class: middle
-
-The details of HMC are very complex, and beyond the scope of this presentation. It is mentioned here because it is the main approximation workhorse of the `Stan` language.
-
-In brief, the advantages of HMC lie in the ability to reduce the amount of Random Walk behavior in MCMC processes by enabling distant "leaps" within the parameter space, finding the "best" area from which to sample.
-
----
-class: middle, center, inverse
-
-# Prior Distributions
-
-$$
-\Theta \sim ?
-$$
-
----
-
-## Types of Priors
-
-**Informative**:
-
-Used when one has specific knowledge about the distribution of the parameter of interest
-
---
-
-**Weakly Informative**: 
-
-Used when one has partial knowledge about the distribution of the parameter. When using a weakly informative prior, there is an added benefit of "regularization", which protects against overfitting<sup>1</sup>
-
---
-
-**Uninformative**:
-
-Sometimes it helps to think of these as "vague" priors. An example would be when you know the distribution is at least positive.
-
-.footnote[[1] Think [Elastic Net Regression](https://en.wikipedia.org/wiki/Tikhonov_regularization)]
-
----
-
-## The False Problem of Choice
-
-Opponents of Bayesian methods often cite the issues involved in choice of prior distributions as adding a <font color="maroon"><b>subjective</b></font> component to our analyses and thus, science.
-
---
-
-Science is inherently subjective. The inherent flexibility involved in the process of designing and conducting a scientific experiment, and in analyzing its results has a name: [researcher degrees of freedom](https://journals.sagepub.com/doi/10.1177/0956797611417632). 
-
-So, adding one more subjective component a) won't affect things that much, and b) analyzing data from a Bayesian perspective could help statistically address "arbitrary choices".<sup>1</sup> 
-
-.footnote[[1] Bayesian Model Averaging with Sensitivity Analyses]
-
----
-class: middle
-
-In addition, as the sample size increases, the prior distribution begins to "fall off"
-
-![](figures/bayes_in_action.png)
-
-In this case, the likelihood will overtake the prior distribution (as long as the model is well specified).
-
----
-class: middle, center, inverse
-
-![](figures/stan_logo.png)
-
-# Stan
-
----
-class: middle
-
-## What is `Stan`?
-
-First, `Stan` isn't an acronym, it was named after Stanislaw Ulam, the inventor of Monte Carlo computational methods
-
-Second, I'm just going to copy straight from [mc-stan.org](https://mc-stan.org):
-
-> Stan is a state-of-the-art platform for statistical modeling and high-performance statistical computation ...
-
-It is a program written in C++ designed for building statistical and mathematical models.
-
----
-class: middle
-
-## What can `Stan` do? 
-
-> Users specify log density functions<sup>1</sup> in Stan’s probabilistic programming language and get ... full Bayesian Statistical Inference w/ MCMC Sampling
-
-It can also do penalized maximum likelihood estimation<sup>2</sup>, [approximate variational inference](https://arxiv.org/pdf/1601.00670.pdf), and solve [Ordinary Differential Equation](https://mc-stan.org/users/documentation/case-studies/lotka-volterra-predator-prey.html) systems.
-
-.footnote[[1] This is actually a very important thing to remember when programming in `Stan`]
-
----
-class: middle
-
-## Syntax & Components
-
-> A Stan program is organized into a sequence of named blocks, the bodies of which consist of variable declarations, followed in the case of some blocks with statements.
-
----
-class: middle
-
-## Stan Program Skeleton
-
-<div style="height:400px;width:800px;border:1px solid #ccc;font:16px/26px Georgia, Garamond, Serif;overflow:auto;">
-
-functions { <br>
- &nbsp; // ... function declarations and definitions ... <br>
-}
-<br>
-<font color="red">
-data { <br>
- &nbsp; // ... declarations ... <br>
-} 
-</font>
-<br>
-transformed data { <br>
-  &nbsp; // ... declarations ... statements ... <br>
-} <br>
-<br>
-<font color="red">
-parameters { <br>
-  &nbsp; // ... declarations ... <br>
-} 
-</font>
-<br>
-<br>
-transformed parameters { <br>
-  &nbsp; // ... declarations ... statements ... <br>
-} <br>
-<br>
-<font color="red">
-model { <br>
-  &nbsp; // ... declarations ... statements ... <br>
-} 
-</font>
-<br>
-<br>
-generated quantities { <br>
-  &nbsp; // ... declarations ... statements ... <br>
-} <br>
-
-</div>
-
-The most common blocks are highlighted in <font color="red">red</font>
-
----
-class: middle
-
-## Linear Regression Example
-
-```{r, echo = TRUE, eval = FALSE}
-data {
-  int<lower=0> N;       // number of cases
-  vector[N] x;          // predictor (covariate)
-  vector[N] y;          // outcome (variate)
-}
-
-parameters {
-  real alpha;           // intercept
-  real beta;            // slope
-  real<lower=0> sigma;  // outcome noise
-}
-
-model {
-  y ~ normal(alpha + beta * x, sigma);
-  alpha ~ normal(0, 10);
-  beta ~ normal(0, 10);
-  sigma ~ cauchy(0, 5);
-}
-```
-
----
-
-## A Closer Look at the `model` Block
-
-```{r, echo = TRUE, eval = FALSE}
-model {
-  y ~ normal(alpha + beta * x, sigma);
-  alpha ~ normal(0, 10);
-  beta ~ normal(0, 10);
-  sigma ~ cauchy(0, 5);
-}
-```
-
-The implied model,
-
-$$
-\begin{aligned}
-\pmb{y} & \sim \mathcal{N}(\alpha + \beta x, \sigma) \\
-\alpha  & \sim \mathcal{N}(0, 10) \\
-\beta   & \sim \mathcal{N}(0, 10) \\
-\sigma  & \sim \text{cauchy}(0, 5)
-\end{aligned}
-$$
-
----
-class: middle
-
-# [Interfacing with R](https://mc-stan.org/rstan/articles/rstan.html)
-
---
-
-`Stan` can interface with almost all of the popular "data science" programming languages, Python, Julia, Stata, etc. the only language it has no interface with is SAS.
-
---
-
-Need to install it first.
-
-```{r, echo = TRUE, eval = FALSE}
-install.packages("rstan")
-```
-
---
-
-Then of course it's not that easy, in order to build and run models you'll need 1) a C++ compiler (e.g., g++), which most modern computers already have, and 2) to configure the tool chain so that R can connect to the C++ compiler. The instructions [here](https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started) are easy to follow and comprehensive.
-
----
-
-If using Rstudio, you can call `Stan` directly with a "code chunk"
-
-![](figures/stan_in_r.png)
-
-````markdown
-`r ''````{stan}
-
-data {
-  int<lower=0> N;       // number of cases
-  vector[N] x;          // predictor (covariate)
-  vector[N] y;          // outcome (variate)
-}
-
-...
-
-``
-````
-
----
-
-## R Interface to Stan (Cont.)
-
-The other option is to write an external `Stan` script and call it into your R session. The following is an example from the Stan User's Guide,
-
-```{r, echo = TRUE, eval = FALSE}
-// saved as schools.stan
-data {
-  int<lower=0> J;         // number of schools 
-  real y[J];              // estimated treatment effects
-  real<lower=0> sigma[J]; // standard error of effect estimates 
-}
-
-parameters {
-  real mu;                // population treatment effect
-  real<lower=0> tau;      // standard deviation in treatment effects
-  vector[J] eta;          // unscaled deviation from mu by school
-}
-
-transformed parameters {
-  vector[J] theta = mu + tau * eta;        // school treatment effects
-}
-
-model {
-  target += normal_lpdf(eta | 0, 1);       // prior log-density
-  target += normal_lpdf(y | theta, sigma); // log-likelihood
-}
-```
-
----
-class: middle
-
-## Data
-
-Can be in list `format` or a `data.frame`
-
-```{r, echo = TRUE, eval = FALSE}
-schools_dat <- list(J = 8, 
-                    y = c(28,  8, -3,  7, -1,  1, 18, 12),
-                    sigma = c(15, 10, 16, 11,  9, 11, 10, 18))
-```
-
----
-class: middle
-
-## Calling Stan from `R`
-
-```{r, echo = TRUE, eval = FALSE}
-library(rstan)
-
-fit <- stan(file = 'models/schools.stan', data = schools_dat)
-```
-
-Or, without the default parameters,
-
-```{r, echo = TRUE, eval = FALSE}
-fit <- stan(
-  file = 'models/schools.stan', 
-  data = schools_dat,
-  chains = 3,         # Number of Markov Chains
-  iter = 1000,        # How long should the chains "run" for?
-  warmup = 500,       # throwing out the first 500 samples
-  thin = 2,           # only collect every 2 draws
-  cores = 3           # if running 3 chains, run on 3 cores
-)
-```
-
----
-class: middle
-
-## Examining the Model
-
-Some things are made easy
-
-```{r, echo = TRUE, eval = FALSE}
-print(fit)     # parameters, credible intervals
-plot(fit)      # plot credible intervals
-traceplot(fit) # plot chains for diagnostics
-```
-
-To compute additional quantities (draws, marginal means, posterior predictions), the data will need to be extracted and manipulated manually
-
-```{r, echo = TRUE, eval = FALSE}
-fitdat <- rstan::extract(fit)      # output is a list of arrays
-fitdat.df <- as.data.frame(fitdat) # nicer to look at and manipulate 
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table1a.png")
 ```
 
 ---
 class: middle, center
 
-# Semi-Automatic Stan
+### Varying Number of Weights Retained
+
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table1b.png")
+```
+
+---
+class: middle, center
+
+### Mean (SD) do not change much
+
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table1c.png")
+```
+
+---
+class: middle, center
+
+### Mean (SD) do not change much
+
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table1d.png")
+```
+
+Because this is a large sample!
+
+---
+class: middle, center
+
+Bootstrapped 95% CI of Sample Standard Deviation (SD)
+
+```{r, echo = FALSE, eval = TRUE, out.height = 500}
+knitr::include_graphics("figures/figure 1.png")
+```
+
+<font size="1">Mid-point represents the median SD; thick grey line represents the 80% quantile interval; black line represents the 95% quantile interval.</font>
+
+---
+class: middle, center
+
+### Outliers still remain
+
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table1d.png")
+```
 
 ---
 class: middle
 
-## Options
+## Descriptive Statistics
 
-* [rstanarm](https://mc-stan.org/rstanarm/)
-* [brms](https://paul-buerkner.github.io/brms/)
-* [rethinking](https://github.com/rmcelreath/rethinking)<sup>1</sup>
+### Key Takeaways
+
+.full-width[.content-box-blue[Despite cleaning efforts, implausible values remain in the data.]]
 
 --
 
-Each of these automate the process of writing the Stan model blocks "under the hood".
+.full-width[.content-box-blue[For large cohorts of patients, the loss of data due to algorithm choice does not appreciably change the overall mean and variance.]]
 
-.footnote[[1] McElreath, 2020: Statistical Rethinking - limited but useful package]
+
+---
+class: middle
+
+## Weight as a Predictor
+
+.full-width[.content-box-blue[To compare algorithms in this context, we present an example showing the association between baseline weight and "new-onset" diabetes.]]
+
+--
+
+.full-width[.content-box-blue[
+We excluded patients with diabetes prior to the study index date and we defined new-onset diabetes as the presence of two or more diabetes diagnosis codes after the patient's index date. 
+
+We applied each of the 12 algorithms to create baseline weight measures for the patients in our four cohorts, using weight measurements that occurred during a 60-day window on or before the index date.
+
+The resulting baseline weight measure was the measurement that occurred on the closest day to the index date.
+
+We used separate logistic regression models to obtain odds ratios for the effect of patient weight on new-onset diabetes.
+]]
+
+
+---
+class: middle, center
+
+### Miniscule Differences in Odds Ratios
+
+```{r, echo = FALSE, eval = TRUE, out.height = 548, out.width = 548}
+knitr::include_graphics("figures/figure 2.png")
+```
+
+---
+class: middle
+
+## Weight as a Predictor
+
+### Key Takeaways
+
+.full-width[.content-box-blue[Relatively **small differences** in effect size.]]
+
+--
+
+.full-width[.content-box-blue[Across algorithms, 95% CIs overlap substantially; **however, some of the time-period specific algorithms show greater variation**.]]
+
+---
+class: middle
+
+## Weight Change
+
+.full-width[.content-box-blue[
+A common metric used in weight loss studies involves one-year **weight loss** $\ge 5 \%$
+
+Similarly, we examined $\ge 5 \%$ **weight gain**.
+
+To compare algorithms on this metric, we applied each algorithm to our cohorts. 
+
+We used a **60-day window** to definite initial weight values and included the weight measurement taken on the closest day to the index date. To define one-year follow-up weights, we again used a 60-day window around the date one year after baseline, keeping the closest weight measurement.
+]]
+
+---
+class: middle, center
+
+### Number of Patients Retained is Mostly Similar Across Algorithms
+
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table2a.png")
+```
+
+---
+class: middle, center
+
+### Weight Loss Proportions Similar Across Algorithms
+
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table2b.png")
+```
+
+---
+class: middle, center
+
+### Same with Weight Gain ...
+
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table2c.png")
+```
+
+---
+class: middle, center
+
+### Implausible Weight Change Values
+
+```{r, echo = FALSE, eval = TRUE, out.height = 453, out.width = 870}
+knitr::include_graphics("figures/algos_table2d.png")
+```
+
+---
+class: middle
+
+## Weight Change
+
+### Key Takeaways
+
+.full-width[.content-box-blue[Weight gain and loss proportions are fairly **consistent** across algorithms.]]
+
+--
+
+.full-width[.content-box-blue[**Implausible values remain** even after applying a - possibly complicated - algorithm.]]
+
+---
+class: middle
+
+## Longitudinal Weight Trajectories
+
+.full-width[.content-box-blue[
+Researchers may be interested in assessing **weight trajectories** within patient over time, and potentially **classifying patients** according to their trajectory, or examining whether types of patients respond differentially to interventions.
+
+**Algorithm choice** may impact the trajectory of individuals and their measurements collected over time, especially for algorithms that severely reduce the number of measurements left to analyze.
+
+Instead of aggregating patient weight over a specific time period, studies analyzing weight measures utilize **repeated measures designs**, such as (generalized) linear mixed models (LMM) or ANOVA/ANCOVAs for estimation. 
+
+To compare algorithms in this context, we used a **latent class mixed model** that assumes the population is heterogeneous and composed of some selected number of latent classes characterized by specific trajectories.
+]]
+
+---
+class: middle, center
+
+### Time-Period Specific Algorithms Produce *Outlier* Trajectories
+
+```{r, echo = FALSE, eval = TRUE, out.height = 531, out.width = 797}
+knitr::include_graphics("figures/figure 3.png")
+```
+
+---
+class: middle
+
+## Longitudinal Weight Trajectories
+
+### Key Takeaways
+
+.full-width[.content-box-blue[Algorithms that **use all data** to clean weight measures appear to be more appropriate when analyzing longitudinal trajectories.]]
+
+---
+class: middle
+
+## Facility-Level Measures
+
+.full-width[.content-box-blue[
+Researchers and evaluators are often interested in **comparing facilities** according to the percent of patients meeting a metric of interest.
+
+We used the raw data and each of the 12 algorithms to calculate the percent of patients at each facility with:
+  * **one-year weight loss** $\ge 5 \%$
+  * **one-year weight gain** $\ge 5 \%$
+  
+Our objective was to understand the impact of algorithm choice on calculated facility level metrics therefore we examined **unadjusted facility rates**. 
+
+We **rank ordered facilities** based on the percent of patients meeting each metric. 
+
+Compared the differences in the facility level percent of patients based on each algorithm, grouping by those that use all data and time-period specific algorithms.
+]]
+
+---
+class: center, middle
+
+### More Data $=$ More Consistent Result
+
+```{r, echo = FALSE, eval = TRUE, out.height = 455, out.width = 797}
+knitr::include_graphics("figures/figure 4.png")
+```
+
+Facility-Level Percent of Patients w/ $\ge 5 \%$ Weight Loss by Algorithm.
+
+---
+class: middle
+
+## Facility-Level Measures
+
+### Key Takeaways
+
+.full-width[.content-box-blue[With some exceptions, algorithms **using all data** exhibit less variation in measurement.
+]]
 
 ---
 class: middle, center, inverse
 
-## brms
-
-<u>B</u>ayesian <u>R</u>egression <u>M</u>odels using <u>S</u>tan
-
----
-
-## Syntax
-
-`brms` is built and maintained by a [crazy person](https://paul-buerkner.github.io/about/) who has done his best to incorporate almost every aspect of `Stan` into `brms`.
-
-The model building syntax borrows heavily from `lme4`, so it helps to know how to build "random effects" in `lme4`,
-
-![](figures/lme4_formulas.png)
+# Findings & Recommendations
 
 ---
 class: middle
 
-## Syntax (Cont.)
+## Principal Findings
 
-But it doesn't stop there, the author has also incorporated the spline building syntax of `mgcv`, a popular Generalized Additive Model (GAM) building software. 
-
-So almost anything `mgcv` can do, `brms` can do<sup>1</sup>. 
-
-.footnote[[1] A difficulty I've found is in providing a prior for smoothing splines, though this may just be my shortcoming and not a limitation of the software]
-
----
-
-## Linear Regression Example
-
-Recall:
-
-```{r, echo = TRUE, eval = FALSE}
-data {
-  int<lower=0> N;       // number of cases
-  vector[N] x;          // predictor (covariate)
-  vector[N] y;          // outcome (variate)
-}
-
-parameters {
-  real alpha;           // intercept
-  real beta;            // slope
-  real<lower=0> sigma;  // outcome noise
-}
-
-model {
-  y ~ normal(alpha + beta * x, sigma);
-  alpha ~ normal(0, 10);
-  beta ~ normal(0, 10);
-  sigma ~ cauchy(0, 5);
-}
-```
-
----
-
-In `brms`:
-
-```{r, echo = TRUE, eval = FALSE}
-library(brms)
-
-priors <- c(
-  set_prior("normal(0, 10)", class = "Intercept"),
-  set_prior("normal(0, 10)", class = "b", coef = "beta"),
-  set_prior("cauchy(0, 5)",  class = "sigma")
-)
-
-brms_mod <- brm(
-  y ~ x,
-  family = gaussian,
-  prior = priors,
-  data = some_data, # just has to have columns x and y
-  cores = 3,
-  chains = 3,
-  iter = 1000,
-  warmup = 250, # throwing away 250 starting samples from each chain
-  control = list(adapt_delta = 0.99) # not needed for such simple models
-)
-```
-
----
-
-If we pretend there exists clusters we wish to give varying intercepts to, the syntax changes to
-
-```{r, echo = TRUE, eval = FALSE}
-library(brms)
-
-priors <- c(
-  set_prior("normal(0, 10)", class = "Intercept"),
-  set_prior("normal(0, 10)", class = "b", coef = "beta"),
-  set_prior("normal(0, 10)", class = "b", coef = "cluster") #<<
-  set_prior("cauchy(0, 5)",  class = "sigma")
-)
-
-brms_mod <- brm(
-  y ~ x + (1 | cluster), #<<
-  family = gaussian,
-  prior = priors,
-  data = some_data, # just has to have columns x and y
-  cores = 3,
-  chains = 3,
-  iter = 1000,
-  warmup = 250, # throwing away 250 starting samples from each chain
-  control = list(adapt_delta = 0.99) # not needed for such simple models
-)
-```
-
----
-
-## Examining the fit
-
-`brms` has it's own `s3` methods for printing the fit, plotting model components, diagnostics, etc.
-
-```{r, echo = TRUE, eval = FALSE}
-summary(brms_mod)
-```
-
-will print the fit.
-
-plot diagnostics with
-
-```{r, echo = TRUE, eval = FALSE}
-plot(
-  brms_mod, 
-  ask = FALSE # it'll ask you for each plot if you don't specify this
-) 
-```
-
-or we can plot conditional effects
-
-```{r, echo = TRUE, eval = FALSE}
-plot(conditional_effects(brms_mod), points = TRUE)
-```
-
----
-
-## Alternatives
+.full-width[.content-box-blue[Differences between algorithms are minor, implying that for many studies, a simpler algorithm design may be computationally more efficient.]]
 
 --
 
-### rstanarm
+.full-width[.content-box-blue[In some cases, the results are not different than using raw, unprocessed data, despite algorithm complexity.]]
 
-I don't know too much about `rstanarm` but it has much of the same functionality as `brms`. 
+---
+class: middle
 
-`brms` has some extra features and `rstanarm` can be faster<sup>1</sup>.
+## Recommendations
 
-.footnote[[1] it also plays well with a great marginal means package called `emmeans`, better than `brms` does anyway]
+.full-width[.content-box-blue[Studies using **point estimates of weight** and weight change may benefit from a **simple cleaning rule** based on cut-offs of implausible values.]]
 
 --
 
-### rethinking
+.full-width[.content-box-blue[For **trajectory analyses**, time-period specific algorithms may not be appropriate.]]
 
-The `rethinking` package is most used in conjunction with Richard McElreath's book *Statistical Rethinking*, so it's mostly for pedagogy, but it does make some things easier to extract from models and to work with them.
+--
+
+.full-width[.content-box-blue[For **facility-level measures**, all time-period specific algorithms result in inconsistent results compared to algorithms that use all data.]]
+
+---
+class: middle
+
+## Recommendations (Cont.)
+
+### Example
+
+.full-width[.content-box-blue[As an example of a recommendation: based on preliminary findings, we employed a two-stage algorithm to derive and clean a weight outcome for Miech et al. 2021, specifically >= 5% weight loss in a 1-year time frame.]]
+
+--
+
+.full-width[.content-box-blue[The procedure we used: for each patient in the VA derived cohort, all weight data was collected between a patient's "baseline" time-point and the end of follow-up (one year).]]
+
+--
+
+.full-width[.content-box-blue[To clean the data, the Breland *et al.* algorithm was employed as it **uses all data**, shows **consistent results** in comparison with other algorithms that use all data, and provides a **reasonable distribution** of weight values upon computing weight change.]]
+
+---
+class: middle
+
+## Recommendations (Cont.)
+
+### Example (Cont.)
+
+.full-width[.content-box-blue[Once cleaned with the Breland algorithm, weight change and weight change as a percent of body weight were calculated and implausible values left in this distribution were then assessed iteratively, by choosing the next closest measurement to either the baseline or follow-up weight, then re-examining the weight change distribution.]] 
+
+--
+
+.full-width[.content-box-blue[This process ends when the distribution is removed of all implausible values, given a range chosen by study investigators.]]
+
+---
+class: middle
+
+## Recommendations (Cont.)
+
+.full-width[.content-box-blue[Finally, we recommend including detailed information on how measures are constructed in publications and/or share code via open source repositories.]]
 
 ---
 class: middle, center, inverse
 
-# Examples with VA Data
-
----
-class: middle, center, inverse
-
-# *neat* things Bayesian models can do
+# Works in Progress
 
 ---
 class: middle
 
-## Missing Data
+## Effect on Sub-Populations (Race/Ethnicity)
 
-Multiple Imputation is a Bayesian Method, with the missing data being estimated by the posterior predictive distribution of the missing data, given the observed data and some estimate of the priors.
-
---
-
-Instead of imputing data, and then running an analyses, we can impute during model fitting, providing a singular framework for building models with missing data.
-
---
-
-This process proceeds by modeling the missing data as a parameter in the posterior, thereby converting the model into a multivariate one, where now instead of just predicting $y$, $X_{miss}$ is additionally predicted.
-
----
-class: middle
-
-## Missing Data (cont.)
-
-To build and evaluate a model like this in `Stan`, the [Stan Users Guide](https://mc-stan.org/docs/2_26/stan-users-guide/missing-data-and-partially-known-parameters.html) provides a good starting point.
-
-To build the same model in `brms`, fortunately there is a [vignette for that](https://cran.r-project.org/web/packages/brms/vignettes/brms_missings.html)
-
---
-
-As an example,
-
-```{r, echo = TRUE, eval = FALSE}
-imp_fit <- brm(
-  bf(y | mi() ~ x1 * mi(x2)) + bf(x2 | mi() ~ x1) + set_rescor(FALSE),
-  data = some_data
-)
+```{r, echo = FALSE, eval = TRUE, out.height = 483, out.width = 725}
+knitr::include_graphics("figures/wtchng_loss.png")
 ```
 
-Where the data `x2` is missing some values.
-
 ---
 class: middle
 
-## Measurement Error Models
+## Manuscript
 
-If we know that a quantity we collected was measured with some error, we can account for the uncertainty in the Bayesian model by treating the *true* quantity as being **missing**.
-
-Using this method will involve a conceptual model of how the measurements are derived from the true values.
-
-If $x$ was measured with error, and the measurement error is known, we can include that measurement error into the model as a standard deviation parameter.
+Submitted to *Journal of Medical Informatics* as **Deriving Weight from Big Data: A Comparison of Body Weight Measurement Cleaning Algorithms** on Sept. 30th (2nd round)
 
 ---
-class: middle
-
-## Measurement Error Models (cont.)
-
-To build and evaluate a model like this in `Stan`, the [Stan Users Guide](https://mc-stan.org/docs/2_26/stan-users-guide/measurement-error-and-meta-analysis.html) provides a good starting point.
-
-To build the same model in `brms`, information is sparse but, some [help does exist](http://paul-buerkner.github.io/brms/reference/me.html)
-
----
-
 class: center, middle
 
 # Thanks!
